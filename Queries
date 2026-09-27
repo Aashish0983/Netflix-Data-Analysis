@@ -1,0 +1,221 @@
+## Netflix Data Analysis - Queries 
+
+# Activate database
+use netflix;
+show tables;
+
+# Tables 
+select * from adultacc; -- profileID, NoOfChildren.
+select * from childacc; -- ProfileID, MaxParentalRating.
+select * from content; -- ContentID, Genre, Titlename, Category, UnlimitedAccess.
+select * from Customers; -- CustID, FName, LName, BDate, Gender, Country, Email.
+select * from CustomerslanguagePreferred; -- CustID, Language.
+select * from Devices; -- DeviceID, DeviceType.
+select * from PaymentHistory; -- PaymentID, Paymentdate, paymentAmount, CardID.
+Select * from paymentMethod; -- cardID, CVV, ExpirationDate, CardNumber, ZipCode, State, City, Street, CustID.
+select * from plans; -- PlanID, AdSupport, NumOfSupportDevForDownload, PlanName, VideoQuality, NumOfSupportDevForView.
+select * from Profiles; -- ProfileID, ProfileName, CustID.
+select * from Subscribes; -- Startdate, CustID, PlanID, Status, EndDate.
+select * from uses; -- ProfileID, DeviceID.
+select * from viewingHistory; -- ContentID, ProfileID, LastWatchedDate, RunTime.
+
+# Queries
+/* 1. Using the Viewing History table, identify the top 3 most-watched movies based on 
+viewing hours.*/
+SELECT
+    c.ContentID,
+    c.TitleName,
+    SUM(vh.Runtime) AS Total_Viewing_Minutes
+FROM ViewingHistory AS vh
+JOIN Content AS c
+ON vh.ContentID = c.ContentID
+WHERE c.Category = 'Movie'
+GROUP BY c.ContentID, c.TitleName
+ORDER BY Total_Viewing_Minutes DESC
+LIMIT 3;
+
+/* 2. Partition the viewing hours by category and genre to find the top genre in each 
+category. Use the rank function to rank genres within each category. */
+select * 
+from
+(
+	select
+    c.Category,
+    c.genre,
+    round(sum(vh.runtime) /60, 2) as Total_Viewing_Hours,
+    rank() Over(
+		Partition By c.category
+        order By Sum(vh.runtime) Desc
+	) as Genre_rank
+	from ViewingHistory as vh
+    join content as c
+    on vh.contentID = c.ContentID
+    group By c.Category, c.genre
+    ) as Ranked_genres
+    where genre_rank = 1;
+    
+    
+/* 3. Determine the number of subscriptions for each plan. Display Plan ID, Plan Name and 
+Subscriber count in descending order of Subscriber count. */
+SELECT
+    p.PlanID,
+    p.PlanName,
+    COUNT(s.CustID) AS Subscriber_Count
+FROM Plans AS p
+JOIN Subscribes AS s
+ON p.PlanID = s.PlanID
+GROUP BY p.PlanID, p.PlanName
+ORDER BY Subscriber_Count DESC;
+
+/* 4. Which device type is most commonly used to access Netflix content? Provide the Device 
+Type and count of accesses. */
+SELECT
+    d.DeviceType,
+    COUNT(*) AS Access_Count
+FROM ViewingHistory AS vh
+JOIN Uses AS u
+    ON vh.ProfileID = u.ProfileID
+JOIN Devices AS d
+    ON u.DeviceID = d.DeviceID
+GROUP BY d.DeviceType
+ORDER BY Access_Count DESC
+LIMIT 1;
+
+/* 5. Compare the viewing trends of movies versus TV shows. What is the average viewing 
+time for movies and TV shows separately? */
+SELECT
+    c.Category,
+    AVG(vh.Runtime) AS Avg_Viewing_Time
+FROM ViewingHistory AS vh
+JOIN Content AS c
+ON vh.ContentID = c.ContentID
+GROUP BY c.Category;
+
+/* 6. Identify the most preferred language by customers. Provide the number of customers, 
+and language. */
+SELECT
+    Language,
+    COUNT(DISTINCT CustID) AS Number_of_Customers
+FROM CustomersLanguagePreferred
+GROUP BY Language
+ORDER BY Number_of_Customers DESC
+LIMIT 1;
+
+/* 7. How many customers have adult accounts versus child accounts? Provide the count for 
+each type. */
+SELECT
+    'Adult' AS Account_Type,
+    COUNT(*) AS Total_Accounts
+FROM AdultAcc
+
+UNION ALL
+
+SELECT
+    'Child' AS Account_Type,
+    COUNT(*) AS Total_Accounts
+FROM ChildAcc;
+
+-- 8. Determine the average number of profiles created per customer account.
+SELECT
+    AVG(Profile_Count) AS Average_Profiles_Per_Customer
+FROM
+(
+    SELECT
+        CustID,
+        COUNT(ProfileID) AS Profile_Count
+    FROM Profiles
+    GROUP BY CustID
+) AS Customer_Profiles;
+
+
+/* 9. Identify the content that has the lowest average viewing time per user. Provide the titles 
+and their average viewing time.  */
+SELECT
+    c.TitleName,
+    AVG(vh.Runtime) AS Avg_Viewing_Time
+FROM ViewingHistory AS vh
+JOIN Content AS c
+ON vh.ContentID = c.ContentID
+GROUP BY c.ContentID, c.TitleName
+ORDER BY Avg_Viewing_Time ASC;
+
+-- 10. Determine the count for each content type.
+SELECT
+    Category,
+    COUNT(*) AS Content_Count
+FROM Content
+GROUP BY Category;
+
+-- 11. Compare the number of customers that have unlimited access and who do not.
+SELECT
+    p.ContentAccess,
+    COUNT(s.CustID) AS Customer_Count
+FROM Plans AS p
+JOIN Subscribes AS s
+ON p.PlanID = s.PlanID
+GROUP BY p.ContentAccess;
+
+-- 12. Find Average monthly price for plans with Content Access as "unlimited". 
+SELECT
+    AVG(MonthlyPrice) AS Average_Monthly_Price
+FROM Plans
+WHERE ContentAccess = 'unlimited';
+
+/* 13. List all the customers who have taken the plan for till 2028 and later. Display 
+CustomerID, Customer name and Expiration Date of the plan, ordered by Expiration 
+Date in descending order first, and then by Customer Name. */
+SELECT
+    c.CustID,
+    CONCAT(c.FName, ' ', c.LName) AS Customer_Name,
+    s.EndDate AS Expiration_Date
+FROM Customers AS c
+JOIN Subscribes AS s
+ON c.CustID = s.CustID
+WHERE YEAR(s.EndDate) >= 2028
+ORDER BY s.EndDate DESC, Customer_Name ASC;
+
+-- 14. Display Average Revenue generated from each city. Rank city based on average revenue. 
+SELECT
+    pt.City,
+    AVG(p.MonthlyPrice) AS Average_Revenue,
+    RANK() OVER (
+        ORDER BY AVG(p.MonthlyPrice) DESC
+    ) AS City_Rank
+FROM Paymentmethod AS pt
+JOIN Subscribes AS s
+    ON pt.CustID = s.CustID
+JOIN Plans AS p
+    ON s.PlanID = p.PlanID
+GROUP BY pt.city;
+
+-- 15. Display most frequently viewed genre among adults for each category.
+SELECT
+    Category,
+    Genre,
+    Total_Views
+FROM
+(
+    SELECT
+        c.Category,
+        c.Genre,
+        COUNT(*) AS Total_Views,
+        RANK() OVER (
+            PARTITION BY c.Category
+            ORDER BY COUNT(*) DESC
+        ) AS Genre_Rank
+    FROM ViewingHistory AS vh
+    JOIN Content AS c
+        ON vh.ContentID = c.ContentID
+    JOIN AdultAcc AS a
+        ON vh.ProfileID = a.ProfileID
+    GROUP BY c.Category, c.Genre
+) AS RankedGenres
+WHERE Genre_Rank = 1;
+
+
+
+
+
+
+
+
